@@ -1,0 +1,91 @@
+# In-container config for the MCTS skill-evolution loop.
+# Used when launched via:
+#   docker run ... pinchbench-skillguard ... \
+#       python3 -m evolution.mcts_cli --config /evolution/config/docker-mcts.yaml ...
+#
+# All paths below are *container-local*. The docker run command must supply
+# these bind mounts (same layout as README_DOCKER.md §3):
+#   host:<REPO>/skillGuard                         -> container:/work            (rw)
+#   host:<REPO>/safetySkill                        -> container:/pristine        (ro)
+#   host:<REPO>/skill-evolution                    -> container:/evolution       (rw)
+#   host:<REPO>/skillGuard/pinchbench-out-docker   -> container:/pinchbench-out  (rw)
+#
+# All four host dirs must be owned by uid:gid 1000:1000 (image user `pinchbench`).
+
+paths:
+  skill_guard_root: /work
+  original_skill_root: /pristine
+  skill_bundle_name: skill-sonar
+  active_deploy_root: /work/safetySkill
+  evolution_root: /evolution
+
+evaluation:
+  # Only used as a staging subdir for the legacy jsonl parser; the real eval
+  # goes through run_all_instances_mixed.sh + INSTANCES_JSONL.
+  subset: mcts_staging
+  bench_extra_args: []
+  force_python_fallback: false
+  per_cell_timeout_sec: 1800
+  round_timeout_sec: 14400     # 4h — a full eval over ~200 instances can be long
+
+# NOTE: MctsLoop ignores the legacy `loop:` and `pool:` sections entirely.
+# Selection is done by `Tree.select_active()` (UCT); "best" is the highest
+# `full_eval_score` in the tree — no roles, no pool eviction. Those knobs are
+# still honoured when `python -m evolution.cli` (the flat-pool loop) is used
+# with this file, but nothing under `mcts:` touches them. config.py supplies
+# safe defaults when the sections are omitted.
+
+refiner:
+  # `model` 是传给 `claude -p --model` 的别名。留空 -> fallback: REFINER_MODEL env
+  # -> CC_ALIAS -> claude CLI 默认。docker run 里 `set -a; source /work/run/config.sh; set +a;`
+  # 之后，CC_ALIAS 会被自动拾取。
+  model: "haiku"
+  # 容器里是 uid 1000 (pinchbench)，bypassPermissions 可用。
+  permission_mode: bypassPermissions
+  # Multi-variant refiner 一次要做 k 份编辑，给它更多时间。
+  timeout_sec: 1800
+  # env 里写死的键值会覆盖 CC_* 映射结果（优先级最高），方便不碰 config.sh 也能换后端。
+  env:
+    # Previous self-hosted GLM backend:
+    # ANTHROPIC_BASE_URL: "<your-base-url>"
+    # ANTHROPIC_AUTH_TOKEN: "<your-token>"
+    # ANTHROPIC_DEFAULT_HAIKU_MODEL: "glm5"
+    # NO_PROXY: "<your-internal-host>,127.0.0.1,localhost"
+    # no_proxy: "<your-internal-host>,127.0.0.1,localhost"
+    # Claude Code appends its own API path; do not include /v1 here.
+    ANTHROPIC_BASE_URL: "<your-base-url>"
+    ANTHROPIC_AUTH_TOKEN: "<your-token>"
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "kimi-k2.6"
+    NO_PROXY: "<your-api-endpoint>,127.0.0.1,localhost"
+    no_proxy: "<your-api-endpoint>,127.0.0.1,localhost"
+  isolate_workspace: true
+
+logging:
+  console_level: INFO
+  file_level: DEBUG
+  keep_transcript: true
+
+mcts:
+  # In-container paths for the stratified splits created by
+  #   skillGuard/split/make_eval_splits.py
+  # (which lives on the host at <REPO>/skillGuard/split/ and is visible inside
+  # the container via the /work bind mount).
+  cheap_eval_instances_jsonl: /work/split/cheap_eval_instances.jsonl
+  full_eval_instances_jsonl:  /work/split/full_eval_instances.jsonl
+  k_children: 3
+  c_uct: 0.7
+  max_iterations: 10
+  max_full_evals: 10
+  asr_success_score: 0.95       # terminal if full-eval score >= this (i.e. ASR <= 0.1)
+  score_fn: asr_inv
+  eval_jobs: 12                 # parallel instances per subset run inside the container
+  # Runtime resilience: retry whole eval pass when aggregate looks like backend failure.
+  runtime_transient_retries: 3
+  runtime_retry_base_sec: 15
+  runtime_retry_max_sec: 300
+  runtime_transient_invalid_rate: 0.85
+  # Backend health probe before retry delay. Empty -> fallback to refiner.env.ANTHROPIC_BASE_URL.
+  backend_health_url: ""
+  backend_health_poll_sec: 10
+  backend_health_timeout_sec: 5
+  backend_health_max_wait_sec: 900

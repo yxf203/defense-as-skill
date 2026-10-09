@@ -1,0 +1,54 @@
+# Combined (malicious + benign) evolution loop config.
+# Inherits most fields from default.yaml; the only delta is that we point the
+# evaluator at the `combined` subset and do NOT force a single continuation
+# profile — benchmark.py now resolves it per-task via `task.label`.
+
+paths:
+  skill_guard_root: ./eval  # the bundled eval framework (run/subsets/scripts)
+  original_skill_root: ./eval/safetySkill
+  skill_bundle_name: skill-sonar
+  active_deploy_root: ./eval/safetySkill
+  evolution_root: .
+
+evaluation:
+  # `run_combined.sh` sequences the malicious smoke cells and then the benign
+  # cells, writing both into `subsets/combined/asr_subset_results.jsonl`.
+  subset: combined
+  # Intentionally empty: with explicit `label` on every task, benchmark.py
+  # picks the correct continuation profile per-task. Pin it here only if you
+  # want to override (e.g. force benign for a utility-only sweep).
+  bench_extra_args: []
+  force_python_fallback: false
+  per_cell_timeout_sec: 1800
+  round_timeout_sec: 10800
+
+loop:
+  max_rounds: 3
+  asr_target: 0.1
+  patience: 3
+  min_improvement: 0.05
+  max_total_skills: 12
+
+pool:
+  max_size: 5
+  balance:
+    asr_weight: 1.0
+    utility_weight: 1.0
+    confirmation_penalty: 0.1
+  roles:
+    - best_safe
+    - best_balanced
+    - best_low_friction
+    - baseline_anchor
+
+refiner:
+  model: ""
+  permission_mode: acceptEdits
+  timeout_sec: 600
+  env: {}
+  isolate_workspace: true
+
+logging:
+  console_level: INFO
+  file_level: DEBUG
+  keep_transcript: true

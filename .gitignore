@@ -1,0 +1,27 @@
+# run artifacts
+eval/subsets/*/
+eval/subsets/.tmp_results
+eval/pinchbench-out*/
+eval/results/
+skills/
+logs/
+artifacts*/
+
+# local config with credentials
+eval/run/config.sh
+
+# dataset dirs (downloaded from HF, see eval/DATA.md)
+eval/tasks/
+eval/injected-skills/
+eval/attack-metadata/
+eval/benign-skills/
+# split/ is ignored EXCEPT the two MCTS eval lists bundled with this repo
+eval/split/*
+!eval/split/cheap_eval_instances.jsonl
+!eval/split/full_eval_instances.jsonl
+
+# python
+__pycache__/
+*.pyc
+*.egg-info/
+.Python

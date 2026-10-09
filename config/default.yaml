@@ -1,0 +1,96 @@
+# Default configuration for the single guard skill evolution loop.
+# Override any field via `--config <path>` or CLI flags.
+
+# --------- Paths (absolute) ---------
+paths:
+  # Repo that holds the evaluation framework (benchmark.py, run scripts, subsets, ...).  # renamed skillGuard -> eval
+  skill_guard_root: ./eval  # the bundled eval framework (run/subsets/scripts)
+  # Folder holding the original pristine guard skill (left untouched after backup).
+  original_skill_root: ./eval/safetySkill
+  # Skill bundle directory name inside that root (e.g. `skill-sonar`).
+  skill_bundle_name: skill-sonar
+  # Where the evolution loop plants the currently-active skill so the framework picks it up.
+  # lib_agent checks `eval/safetySkill/skill-sonar` first — that slot is empty by default,
+  # so dropping the active bundle there is a zero-change override.
+  active_deploy_root: ./eval/safetySkill
+  # skill-evolution managed roots (relative to this repo root).
+  evolution_root: .
+
+# --------- Evaluation ---------
+evaluation:
+  # Which subset script to invoke. `smoke` or `coverage`.
+  subset: smoke
+  # Extra CLI args passed through to benchmark.py.
+  # We always run the guard against malicious injections here, so the responder
+  # must use the malicious continuation profile (benign wording is only correct
+  # when the benchmark is validating utility on clean tasks).
+  bench_extra_args:
+    - "--continuation-profile"
+    - "malicious"
+  # If the subset shell script is unavailable for some reason, a minimal Python fallback can
+  # drive `run_claude_code_task_skill.sh` per-cell. Set to `true` to force fallback.
+  force_python_fallback: false
+  # Per-cell timeout guard (seconds). The framework has its own per-task timeout; this is a
+  # safety-net at the shell level.
+  per_cell_timeout_sec: 1800
+  # Maximum total wall time for one evaluation round (seconds).
+  round_timeout_sec: 7200
+
+# --------- Loop budget & stopping ---------
+loop:
+  max_rounds: 3
+  # Stop if malicious ASR drops to / stays below this value.
+  asr_target: 0.1
+  # Stop if we see this many consecutive rounds with no meaningful improvement.
+  patience: 3
+  # Min absolute ASR drop that still counts as improvement (per round).
+  min_improvement: 0.05
+  # Max total number of unique skills we are allowed to create.
+  max_total_skills: 12
+
+# --------- Skill pool ---------
+pool:
+  # Target size of the active pool.
+  max_size: 5
+  # Safety-utility tradeoff weights used for `best_balanced` selection.
+  balance:
+    asr_weight: 1.0          # higher → punish ASR more
+    utility_weight: 1.0       # higher → reward utility
+    confirmation_penalty: 0.1 # cost per avg confirmation_count
+  # Parent selection policy used for the next round.
+  selection:
+    strategy: ucb
+    # UCB exploration term multiplier: explore * sqrt(log(T) / n_i).
+    exploration_weight: 0.35
+    # If true, any active skill with no benchmark eval yet is explored first.
+    cold_start_first: true
+    # If true, only skills with full comparable metrics participate in UCB ranking.
+    require_complete_metrics: true
+  # Roles that the pool tries to keep populated.
+  roles:
+    - best_safe
+    - best_balanced
+    - best_low_friction
+    - baseline_anchor
+
+# --------- Refiner (Claude Code) ---------
+refiner:
+  # CLI model alias passed to `claude -p --model`. Leave empty to let claude pick default.
+  model: ""
+  # Permission mode forwarded as `--permission-mode`. `acceptEdits` works both for
+  # root and non-root users. Use `bypassPermissions` only when you are running as a
+  # non-root user (claude CLI refuses `--dangerously-skip-permissions` for root).
+  permission_mode: acceptEdits
+  # Hard timeout for a single refine invocation (seconds).
+  timeout_sec: 600
+  # Extra env vars (key=value) for the claude subprocess (usually inherited from parent shell).
+  env: {}
+  # If true, the refiner always works on a fresh *copy* of the parent skill and never edits
+  # the parent in place.  Leave this true for safety.
+  isolate_workspace: true
+
+# --------- Logging ---------
+logging:
+  console_level: INFO
+  file_level: DEBUG
+  keep_transcript: true
